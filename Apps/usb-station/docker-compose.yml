@@ -1,0 +1,137 @@
+name: usb-station
+
+services:
+  usb-station:
+    image: ghcr.io/usb-station/usb-station:0.1.0
+    container_name: usb-station
+    restart: unless-stopped
+    ports:
+      - target: 8080
+        published: ${WEBUI_PORT:-8081}
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /DATA/AppData/$AppID/config
+        target: /data
+      - type: bind
+        source: /DATA/AppData/$AppID/iso
+        target: /storage/iso
+      - type: bind
+        source: /DATA/AppData/$AppID/downloads
+        target: /storage/downloads
+      - type: bind
+        source: /DATA/AppData/$AppID/logs
+        target: /logs
+      - type: bind
+        source: /dev
+        target: /dev
+      - type: bind
+        source: /run/udev
+        target: /run/udev
+    devices:
+      - /dev/sda
+      - /dev/sdb
+      - /dev/sdc
+      - /dev/sdd
+      - /dev/nvme0n1
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - DATABASE_URL=sqlite:///data/usb-station.db?mode=rwc
+      - STORAGE_ISO_PATH=/storage/iso
+      - STORAGE_DOWNLOAD_PATH=/storage/downloads
+      - STORAGE_LOG_PATH=/logs
+      - FLASH_MAX_CONCURRENT=${FLASH_MAX_CONCURRENT:-2}
+      - FLASH_VERIFY=true
+      - LOG_LEVEL=info
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+    cap_add:
+      - SYS_ADMIN
+      - SYS_RAWIO
+      - MKNOD
+    group_add:
+      - disk
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: usb-station
+  author: USB Station Team
+  category: Utilities
+  description:
+    en_us: USB Station is a self-hosted web application that lets you create bootable USB drives directly from your browser. No terminal, no SSH, no Linux knowledge required. Plug in a USB drive, select an ISO, and click Flash.
+  developer: USB Station Contributors
+  icon: https://cdn.jsdelivr.net/gh/usb-station/appstore@main/Apps/usb-station/assets/icon.svg
+  tagline:
+    en_us: Create bootable USB drives from your browser
+  thumbnail: https://cdn.jsdelivr.net/gh/usb-station/appstore@main/Apps/usb-station/assets/thumbnail.png
+  title:
+    en_us: USB Station
+  index: /
+  port_map: "${WEBUI_PORT:-8081}"
+  scheme: http
+  tips:
+    before_install:
+      en_us: |
+        **USB Station** allows you to flash ISO images to USB drives directly from your browser.
+
+        ### Prerequisites
+        - USB drives will be detected automatically when plugged into the server
+        - Place ISO files in the app data directory after installation
+        - The app needs access to `/dev` devices for USB flashing
+
+        ### Default Port
+        - Web UI: `8081` (configurable via WEBUI_PORT)
+  version: "0.1.0"
+  update_at: "2026-07-20"
+  release_notes:
+    en_us: Initial release — USB detection, ISO library, flash engine, batch flashing with Clone/Sequential/SmartAssign modes, multi-architecture support.
+  website: https://usb-station.dev
+  repo: https://github.com/usb-station/usb-station
+  support: https://github.com/usb-station/usb-station/issues
+  docs: https://usb-station.dev/docs
+  envs:
+    - container: FLASH_MAX_CONCURRENT
+      description:
+        en_us: Maximum number of USB flashes that can run simultaneously (default: 2)
+      default: "2"
+    - container: LOG_LEVEL
+      description:
+        en_us: Logging level (trace, debug, info, warn, error)
+      default: info
+    - container: FLASH_VERIFY
+      description:
+        en_us: Enable SHA256 verification after flashing (true/false)
+      default: "true"
+  ports:
+    - container: "8080"
+      description:
+        en_us: USB Station web interface port
+  volumes:
+    - container: /data
+      description:
+        en_us: Database and configuration storage
+    - container: /storage/iso
+      description:
+        en_us: ISO image library directory
+    - container: /storage/downloads
+      description:
+        en_us: Downloaded ISO files directory
+    - container: /logs
+      description:
+        en_us: Application logs directory
+    - container: /dev
+      description:
+        en_us: Host device directory (required for USB access)
+    - container: /run/udev
+      description:
+        en_us: udev runtime directory (required for USB hotplug detection)

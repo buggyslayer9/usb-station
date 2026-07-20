@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "store_id": "usb-station",
+  "name": {
+    "en_us": "USB Station Apps"
+  },
+  "description": {
+    "en_us": "Self-hosted bootable USB drive creator — flash ISOs directly from your browser"
+  },
+  "maintainer": "USB Station Team",
+  "url": "https://usb-station.dev",
+  "icon": "https://cdn.jsdelivr.net/gh/usb-station/appstore@main/Apps/usb-station/assets/icon.svg"
+}

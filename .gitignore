@@ -1,0 +1,29 @@
+# Rust
+backend/target/
+**/*.rs.bk
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Data
+/data/
+/logs/
+
+# Env
+.env
+*.local
