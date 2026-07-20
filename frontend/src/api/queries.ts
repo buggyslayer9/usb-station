@@ -52,6 +52,13 @@ export type BatchCreateRequest = {
   max_concurrent?: number
 }
 
+export type SystemInfo = {
+  total_capacity_bytes: number
+  used_bytes: number
+  disk_usage_percent: number
+  uptime_seconds: number
+}
+
 export const useUsbDevices = () =>
   useQuery({
     queryKey: ['usb-devices'],
@@ -69,6 +76,7 @@ export const useFlashJobs = () =>
   useQuery({
     queryKey: ['flash-jobs'],
     queryFn: () => api.get<{ jobs: FlashJob[] }>('/flash'),
+    refetchInterval: 2000,
   })
 
 export const useFlashJobStatus = (id: string) =>
@@ -78,7 +86,7 @@ export const useFlashJobStatus = (id: string) =>
     refetchInterval: 1000,
   })
 
-export const useStartFlash = () => {
+export const useCreateFlash = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { iso_id: string; usb_id: string }) =>
@@ -87,11 +95,27 @@ export const useStartFlash = () => {
   })
 }
 
+export const useEjectUsb = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/usb/${id}/eject`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['usb-devices'] }),
+  })
+}
+
 export const useCancelFlash = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.post(`/flash/${id}/cancel`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['flash-jobs'] }),
+  })
+}
+
+export const useCancelBatch = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/batch/${id}/cancel`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['batches'] }),
   })
 }
 
@@ -109,4 +133,11 @@ export const useBatchProgress = (id: string) =>
     queryFn: () => api.get<FlashBatch>(`/batch/${id}`),
     refetchInterval: 2000,
     enabled: !!id,
+  })
+
+export const useSystemInfo = () =>
+  useQuery({
+    queryKey: ['system-info'],
+    queryFn: () => api.get<SystemInfo>('/system/info'),
+    refetchInterval: 10000,
   })

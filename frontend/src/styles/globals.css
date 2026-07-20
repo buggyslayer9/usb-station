@@ -70,3 +70,13 @@
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+.ProgressRoot {
+  @apply relative overflow-hidden bg-muted rounded-full w-full;
+  height: 8px;
+}
+
+.ProgressIndicator {
+  @apply h-full w-full rounded-full transition-all duration-500 ease-in-out;
+  background: hsl(var(--primary));
+}

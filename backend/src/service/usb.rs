@@ -1,13 +1,12 @@
+use std::path::PathBuf;
 use uuid::Uuid;
 use tracing::{info, warn};
 
 use crate::domain::usb::*;
 
-/// Service for USB device detection, monitoring, and safe ejection.
 pub struct UsbService;
 
 impl UsbService {
-    /// Scan all currently connected USB storage devices.
     pub async fn scan_devices() -> Vec<UsbDevice> {
         let mut devices = Vec::new();
 
@@ -17,7 +16,6 @@ impl UsbService {
                     let name = entry.file_name();
                     let name_str = name.to_string_lossy();
 
-                    // Skip non-removable devices
                     let removable_path = entry.path().join("removable");
                     let is_removable = std::fs::read_to_string(&removable_path)
                         .map(|s| s.trim() == "1")
@@ -28,29 +26,44 @@ impl UsbService {
                     }
 
                     let device_path = format!("/dev/{}", name_str);
-                    let size_path = entry.path().join("size");
+                    let base = entry.path();
+
+                    let size_path = base.join("size");
                     let capacity = std::fs::read_to_string(&size_path)
                         .ok()
                         .and_then(|s| s.trim().parse::<u64>().ok())
                         .map(|sectors| sectors * 512)
                         .unwrap_or(0);
 
-                    let vendor = std::fs::read_to_string(entry.path().join("device/vendor"))
+                    let vendor = std::fs::read_to_string(base.join("device/vendor"))
                         .ok()
                         .map(|s| s.trim().to_string());
 
-                    let model = std::fs::read_to_string(entry.path().join("device/model"))
+                    let model = std::fs::read_to_string(base.join("device/model"))
                         .ok()
                         .map(|s| s.trim().to_string());
 
-                    let serial = std::fs::read_to_string(entry.path().join("serial"))
+                    let serial = std::fs::read_to_string(base.join("serial"))
                         .ok()
                         .map(|s| s.trim().to_string());
 
-                    // Check mounts
+                    let rotational = std::fs::read_to_string(base.join("queue/rotational"))
+                        .ok()
+                        .and_then(|s| s.trim().parse::<u8>().ok())
+                        .unwrap_or(1);
+
                     let mounts = Self::read_mounts();
                     let mount_info = mounts.iter()
                         .find(|(dev, _)| dev == &device_path);
+
+                    let filesystem = mount_info.and_then(|(dev, _)| {
+                        std::fs::read_to_string("/proc/mounts").ok().and_then(|content| {
+                            content.lines().find_map(|line| {
+                                let parts: Vec<&str> = line.split_whitespace().collect();
+                                if parts.len() >= 3 && parts[0] == *dev { Some(parts[2].to_string()) } else { None }
+                            })
+                        })
+                    });
 
                     devices.push(UsbDevice {
                         id: Uuid::new_v4(),
@@ -59,12 +72,12 @@ impl UsbService {
                         model,
                         serial,
                         capacity_bytes: capacity,
-                        filesystem: None,
+                        filesystem,
                         mount_point: mount_info.map(|(_, mnt)| mnt.clone()),
                         is_mounted: mount_info.is_some(),
                         is_readonly: false,
-                        is_system_disk: Self::is_system_disk(&name_str),
-                        health: DiskHealth::Good,
+                        is_system_disk: Self::is_system_disk(&name_str, &mounts),
+                        health: if rotational == 0 { DiskHealth::Good } else { DiskHealth::Good },
                         inserted_at: chrono::Utc::now(),
                         updated_at: chrono::Utc::now(),
                     });
@@ -76,9 +89,73 @@ impl UsbService {
         devices
     }
 
-    /// Safely unmount and eject a USB device.
+    pub fn get_device_info(path: &str) -> Option<UsbDeviceInfo> {
+        let dev_name = path.trim_start_matches("/dev/");
+        if dev_name.is_empty() || dev_name.contains('/') {
+            return None;
+        }
+
+        let base_name = if dev_name.starts_with("nvme") {
+            dev_name.trim_end_matches(|c: char| c.is_ascii_digit() || c == 'p')
+        } else {
+            dev_name.trim_end_matches(|c: char| c.is_ascii_digit())
+        };
+
+        let sys_base = PathBuf::from("/sys/block").join(base_name);
+        if !sys_base.exists() {
+            return None;
+        }
+
+        let sys_path = if base_name == dev_name {
+            sys_base.clone()
+        } else {
+            sys_base.join(dev_name)
+        };
+
+        let size_sectors = std::fs::read_to_string(sys_path.join("size"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let sector_size = std::fs::read_to_string(sys_path.join("queue/hw_sector_size"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(512);
+
+        let is_removable = std::fs::read_to_string(sys_base.join("removable"))
+            .map(|s| s.trim() == "1")
+            .unwrap_or(false);
+
+        let vendor = std::fs::read_to_string(sys_base.join("device/vendor"))
+            .ok()
+            .map(|s| s.trim().to_string());
+
+        let model = std::fs::read_to_string(sys_base.join("device/model"))
+            .ok()
+            .map(|s| s.trim().to_string());
+
+        let serial = std::fs::read_to_string(sys_base.join("serial"))
+            .ok()
+            .map(|s| s.trim().to_string());
+
+        let is_readonly = std::fs::read_to_string(sys_path.join("ro"))
+            .ok()
+            .map(|s| s.trim() == "1")
+            .unwrap_or(false);
+
+        Some(UsbDeviceInfo {
+            device_path: path.to_string(),
+            vendor,
+            model,
+            serial,
+            size_sectors,
+            sector_size,
+            is_removable,
+            is_readonly,
+        })
+    }
+
     pub async fn eject(device_path: &str) -> Result<(), String> {
-        // Find mount point
         let mounts = Self::read_mounts();
         if let Some((_, mount_point)) = mounts.iter().find(|(dev, _)| dev == &device_path) {
             let status = tokio::process::Command::new("umount")
@@ -92,7 +169,6 @@ impl UsbService {
             }
         }
 
-        // Eject the device
         let status = tokio::process::Command::new("eject")
             .arg(device_path)
             .status()
@@ -107,9 +183,14 @@ impl UsbService {
         }
     }
 
-    fn is_system_disk(name: &str) -> bool {
-        // Heuristic: boot/root partitions typically on sda or nvme0n1
-        name == "sda" || name.starts_with("nvme0n1") || name.starts_with("mmcblk0")
+    fn is_system_disk(name: &str, mounts: &[(String, String)]) -> bool {
+        if name == "sda" || name.starts_with("nvme0n1") || name.starts_with("mmcblk0") {
+            return true;
+        }
+        let dev = format!("/dev/{}", name);
+        mounts.iter().any(|(d, m)| {
+            d.starts_with(&dev) && (m == "/" || m == "/boot" || m.starts_with("/boot/") || m.contains("docker"))
+        })
     }
 
     fn read_mounts() -> Vec<(String, String)> {
